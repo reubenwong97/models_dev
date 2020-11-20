@@ -95,7 +95,7 @@ def Conv2dGn(
         drop_rate=None,
         **kwargs
 ):
-    """Extension of Conv2D layer with batchnorm"""
+    """Extension of Conv2D layer with groupnorm"""
     conv_name, act_name, gn_name = None, None, None
     block_name = kwargs.pop('name', None)
     backend, layers, models, keras_utils = get_submodules_from_kwargs(kwargs)
