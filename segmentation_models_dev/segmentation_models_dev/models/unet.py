@@ -3,6 +3,7 @@ from keras_applications import get_submodules_from_kwargs
 from ._common_blocks import Conv2dBn, Conv2dGn
 from ._utils import freeze_model, filter_keras_submodules
 from ..backbones.backbones_factory import Backbones
+import tensorflow_addons as tfa
 
 backend = None
 layers = None
@@ -64,7 +65,7 @@ def Conv3x3GnReLU(filters, use_groupnorm, groupnorm_groups, drop_rate=None, name
 
     return wrapper
 
-def DecoderUpsamplingX2Block(filters, stage, drop_rate=None, use_batchnorm=False):
+def DecoderUpsamplingX2Block(filters, stage, drop_rate=None, use_groupnorm=False, groupnorm_groups=2, use_batchnorm=False):
     up_name = 'decoder_stage{}_upsampling'.format(stage)
     conv1_name = 'decoder_stage{}a'.format(stage)
     conv2_name = 'decoder_stage{}b'.format(stage)
@@ -72,28 +73,37 @@ def DecoderUpsamplingX2Block(filters, stage, drop_rate=None, use_batchnorm=False
 
     concat_axis = 3 if backend.image_data_format() == 'channels_last' else 1
 
+    if use_batchnorm == True and use_groupnorm == True:
+        raise ValueError('Cannot use both BatchNorm and GroupNorm')
+
     def wrapper(input_tensor, skip=None):
         x = layers.UpSampling2D(size=2, name=up_name)(input_tensor)
 
         if skip is not None:
             x = layers.Concatenate(axis=concat_axis, name=concat_name)([x, skip])
 
-        x = Conv3x3BnReLU(filters, use_batchnorm, drop_rate=drop_rate, name=conv1_name)(x)
-        x = Conv3x3BnReLU(filters, use_batchnorm, drop_rate=drop_rate, name=conv2_name)(x)
+        if use_groupnorm:
+            x = Conv3x3GnReLU(filters, use_groupnorm, groupnorm_groups, drop_rate=drop_rate, name=conv1_name)(x)
+            x = Conv3x3GnReLU(filters, use_groupnorm, groupnorm_groups, drop_rate=drop_rate, name=conv2_name)(x)
+        else:
+            # this conditional branch includes not using batchnorm, by passing corresponding flag
+            x = Conv3x3BnReLU(filters, use_batchnorm, drop_rate=drop_rate, name=conv1_name)(x)
+            x = Conv3x3BnReLU(filters, use_batchnorm, drop_rate=drop_rate, name=conv2_name)(x)
 
         return x
 
     return wrapper
 
 
-def DecoderTransposeX2Block(filters, stage, drop_rate=None, use_batchnorm=False):
+def DecoderTransposeX2Block(filters, stage, drop_rate=None, use_groupnorm=False, groupnorm_groups=2, use_batchnorm=False):
     transp_name = 'decoder_stage{}a_transpose'.format(stage)
     bn_name = 'decoder_stage{}a_bn'.format(stage)
+    gn_name = 'decoder_state{}a_gn'.format(stage)
     relu_name = 'decoder_stage{}a_relu'.format(stage)
     conv_block_name = 'decoder_stage{}b'.format(stage)
     concat_name = 'decoder_stage{}_concat'.format(stage)
 
-    concat_axis = bn_axis = 3 if backend.image_data_format() == 'channels_last' else 1
+    concat_axis = bn_axis = gn_axis = 3 if backend.image_data_format() == 'channels_last' else 1
 
     def layer(input_tensor, skip=None):
 
@@ -103,18 +113,27 @@ def DecoderTransposeX2Block(filters, stage, drop_rate=None, use_batchnorm=False)
             strides=(2, 2),
             padding='same',
             name=transp_name,
-            use_bias=not use_batchnorm,
+            use_bias=not (use_batchnorm or use_groupnorm),
         )(input_tensor)
+
+        if use_batchnorm == True and use_groupnorm == True:
+            raise ValueError('Cannot use both BatchNorm and GroupNorm')
 
         if use_batchnorm:
             x = layers.BatchNormalization(axis=bn_axis, name=bn_name)(x)
+
+        if use_groupnorm:
+            x = tfa.layers.GroupNormalization(groups=groupnorm_groups, axis=gn_axis, name=gn_name)(x)
 
         x = layers.Activation('relu', name=relu_name)(x)
 
         if skip is not None:
             x = layers.Concatenate(axis=concat_axis, name=concat_name)([x, skip])
 
-        x = Conv3x3BnReLU(filters, use_batchnorm, drop_rate=drop_rate, name=conv_block_name)(x)
+        if use_groupnorm:
+            x = Conv3x3GnReLU(filters, use_groupnorm, groupnorm_groups, drop_rate, name=conv_block_name)(x)
+        else:
+            x = Conv3x3BnReLU(filters, use_batchnorm, drop_rate=drop_rate, name=conv_block_name)(x)
 
         return x
 
@@ -134,8 +153,13 @@ def build_unet(
         classes=1,
         activation='sigmoid',
         use_batchnorm=True,
+        use_groupnorm=False,
+        groupnorm_groups=2,
         drop_rate=None
 ):
+    if use_batchnorm == True and use_groupnorm == True:
+        raise ValueError('Cannot use both BatchNorm and GroupNorm')
+
     input_ = backbone.input
     x = backbone.output
 
@@ -145,8 +169,12 @@ def build_unet(
 
     # add center block if previous operation was maxpooling (for vgg models)
     if isinstance(backbone.layers[-1], layers.MaxPooling2D):
-        x = Conv3x3BnReLU(512, use_batchnorm, drop_rate=drop_rate, name='center_block1')(x)
-        x = Conv3x3BnReLU(512, use_batchnorm, drop_rate=drop_rate, name='center_block2')(x)
+        if use_groupnorm:
+            x = Conv3x3GnReLU(512, use_groupnorm, groupnorm_groups, drop_rate=drop_rate, name='center_block1')(x)
+            x = Conv3x3GnReLU(512, use_groupnorm, groupnorm_groups, drop_rate=drop_rate, name='center_block2')(x)
+        else:
+            x = Conv3x3BnReLU(512, use_batchnorm, drop_rate=drop_rate, name='center_block1')(x)
+            x = Conv3x3BnReLU(512, use_batchnorm, drop_rate=drop_rate, name='center_block2')(x)
 
     # building decoder blocks
     for i in range(n_upsample_blocks):
@@ -155,8 +183,11 @@ def build_unet(
             skip = skips[i]
         else:
             skip = None
-
-        x = decoder_block(decoder_filters[i], stage=i, use_batchnorm=use_batchnorm, drop_rate=drop_rate)(x, skip)
+        if use_groupnorm:
+            x = decoder_block(decoder_filters[i], stage=i, use_batchnorm=use_batchnorm, drop_rate=drop_rate, 
+                                use_groupnorm=use_groupnorm, groupnorm_groups=groupnorm_groups)(x, skip)
+        else:
+            x = decoder_block(decoder_filters[i], stage=i, use_batchnorm=use_batchnorm, drop_rate=drop_rate)(x, skip)
 
     # model head (define number of output classes)
     x = layers.Conv2D(
@@ -191,6 +222,8 @@ def Unet(
         decoder_block_type='upsampling',
         decoder_filters=(256, 128, 64, 32, 16),
         decoder_use_batchnorm=True,
+        decoder_use_groupnorm=False,
+        decoder_groupnorm_groups=2,
         decoder_drop_rate=None,
         **kwargs
 ):
@@ -227,6 +260,8 @@ def Unet(
         https://arxiv.org/pdf/1505.04597
 
     """
+    if decoder_use_batchnorm == True and decoder_use_groupnorm == True:
+        raise ValueError('Cannot use both BatchNorm and GroupNorm')
 
     global backend, layers, models, keras_utils
     submodule_args = filter_keras_submodules(kwargs)
@@ -260,6 +295,8 @@ def Unet(
         activation=activation,
         n_upsample_blocks=len(decoder_filters),
         use_batchnorm=decoder_use_batchnorm,
+        use_groupnorm=decoder_use_groupnorm,
+        groupnorm_groups=decoder_groupnorm_groups,
         drop_rate=decoder_drop_rate
     )
 
