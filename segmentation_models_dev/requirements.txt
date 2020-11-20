@@ -1,0 +1,3 @@
+keras_applications>=1.0.7,<=1.0.8
+efficientnet==1.0.0
+image-classifiers-dev==1.0.0
