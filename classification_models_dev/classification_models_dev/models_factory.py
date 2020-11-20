@@ -1,6 +1,7 @@
 import functools
 import keras_applications as ka
 
+from .models import resnet18_modified as resnet18_modified
 from .models import resnet as rn
 from .models import resnext as rx
 from .models import senet as sn
@@ -8,6 +9,8 @@ from .models import senet as sn
 
 class ModelsFactory:
     _models = {
+        # Modified ResNet18
+        'resnet18_modified': [resnet18_modified.ResNet18_Modified, resnet18_modified.preprocess_input],
 
         # ResNets
         'resnet18': [rn.ResNet18, rn.preprocess_input],

@@ -225,6 +225,7 @@ def Unet(
         decoder_use_groupnorm=False,
         decoder_groupnorm_groups=2,
         decoder_drop_rate=None,
+        encoder_activation='relu',
         **kwargs
 ):
     """ Unet_ is a fully convolution neural network for image semantic segmentation
@@ -275,13 +276,27 @@ def Unet(
         raise ValueError('Decoder block type should be in ("upsampling", "transpose"). '
                          'Got: {}'.format(decoder_block_type))
 
-    backbone = Backbones.get_backbone(
-        backbone_name,
-        input_shape=input_shape,
-        weights=encoder_weights,
-        include_top=False,
-        **kwargs,
-    )
+    # backwards compatability with original models not using resnet18_modified
+    if backbone_name == 'resnet18_modified':
+        print("using resnet18_modified")
+        backbone = Backbones.get_backbone(
+            backbone_name,
+            input_shape=input_shape,
+            # weights=encoder_weights,
+            weights=None,
+            include_top=False,
+            encoder_activation=encoder_activation,
+            **kwargs,
+        )
+    else:
+        print("using original backbones")
+        backbone = Backbones.get_backbone(
+            backbone_name,
+            input_shape=input_shape,
+            weights=encoder_weights,
+            include_top=False,
+            **kwargs,
+        )
 
     if encoder_features == 'default':
         encoder_features = Backbones.get_feature_layers(backbone_name, n=4)
