@@ -1,6 +1,6 @@
 from keras_applications import get_submodules_from_kwargs
 
-from ._common_blocks import Conv2dBn
+from ._common_blocks import Conv2dBn, Conv2dGn
 from ._utils import freeze_model, filter_keras_submodules
 from ..backbones.backbones_factory import Backbones
 
@@ -45,6 +45,24 @@ def Conv3x3BnReLU(filters, use_batchnorm, drop_rate=None, name=None):
 
     return wrapper
 
+def Conv3x3GnReLU(filters, use_groupnorm, groupnorm_groups, drop_rate=None, name=None):
+    kwargs = get_submodules()
+
+    def wrapper(input_tensor):
+        return Conv2dGn(
+            filters,
+            kernel_size=3,
+            activation='relu',
+            kernel_initializer='he_uniform',
+            padding='same',
+            use_groupnorm=use_groupnorm,
+            groupnorm_groups=groupnorm_groups,
+            name=name,
+            drop_rate=drop_rate,
+            **kwargs
+        )(input_tensor)
+
+    return wrapper
 
 def DecoderUpsamplingX2Block(filters, stage, drop_rate=None, use_batchnorm=False):
     up_name = 'decoder_stage{}_upsampling'.format(stage)
