@@ -13,6 +13,10 @@ class BackbonesFactory(ModelsFactory):
         # (x16, x8, x4, x2, x1) - `x4` mean that features has 4 times less spatial
         # resolution (Height x Width) than input image.
 
+        # Modified ResNet18
+        'resnet18_modified': ('stage4_unit1_relu1', 'stage3_unit1_relu1', 'stage2_unit1_relu1', 'relu0'),
+
+        
         # VGG
         'vgg16': ('block5_conv3', 'block4_conv3', 'block3_conv3', 'block2_conv2', 'block1_conv2'),
         'vgg19': ('block5_conv4', 'block4_conv4', 'block3_conv4', 'block2_conv2', 'block1_conv2'),
